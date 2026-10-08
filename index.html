@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NEXUS // RFID</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#000;color:#bff;font-family:"Courier New",monospace;touch-action:none;user-select:none;letter-spacing:1px}
+canvas#c{display:block;width:100%;height:100%}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+#hud{position:fixed;left:12px;top:calc(env(safe-area-inset-top,0px) + 10px);font-size:12px;text-shadow:0 0 8px #0ff;pointer-events:none}
+#hud b{font-size:16px;color:#0ff}
+#obj{margin-top:6px;color:#ff2d95}
+#pips span{display:inline-block;width:26px;height:8px;margin-right:4px;border:1px solid #0ff;opacity:.35}
+#pips span.on{background:#0ff;opacity:1;box-shadow:0 0 8px #0ff}
+#cross{position:fixed;left:50%;top:50%;width:6px;height:6px;margin:-3px;border:1px solid #0ffa;border-radius:50%;pointer-events:none}
+#prompt{position:fixed;left:50%;top:60%;transform:translateX(-50%);font-size:14px;color:#0ff;text-shadow:0 0 10px #0ff;display:none;pointer-events:none}
+#toast{position:fixed;right:10px;top:calc(env(safe-area-inset-top,0px) + 10px);width:230px;background:#0b2a44ee;border:1px solid #2b8fd6;border-radius:10px;padding:9px 12px;font-size:12px;opacity:0;transform:translateY(-10px);transition:.3s;pointer-events:none}
+#toast.show{opacity:1;transform:none}
+#toast small{display:block;color:#7fc8ff;margin-bottom:3px;font-weight:700}
+#flash{position:fixed;inset:0;background:#f02;opacity:0;pointer-events:none;transition:opacity .5s}
+#intro,#end{position:fixed;inset:0;background:radial-gradient(#06182aee,#000f);display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.8;flex-direction:column}
+#end{display:none;font-size:14px}
+h1{font-size:44px;margin:0;color:#0ff;text-shadow:0 0 20px #0ff,0 0 50px #08f}
+h1 i{color:#ff2d95;text-shadow:0 0 20px #ff2d95}
+#go{margin-top:22px;padding:12px 28px;border:2px solid #0ff;color:#0ff;font-size:16px;animation:p 1.4s infinite}
+@keyframes p{50%{box-shadow:0 0 22px #0ff}}
+#touch{display:none}
+#touch button{position:fixed;width:60px;height:60px;border-radius:50%;border:2px solid #0ff8;background:#0338;color:#0ff;font-size:20px;font-family:inherit;bottom:calc(env(safe-area-inset-bottom,0px) + 20px)}
+button{font-family:inherit;cursor:pointer;background:#031525;color:#0ff;border:1px solid #0ff;padding:12px 20px;margin:6px;font-size:15px}
+button:disabled{opacity:.45;cursor:default}
+#vrbar{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:5;text-align:center}
+#vrstatus{font-size:12px;max-width:520px;color:#bff}
+body.xr #intro,body.xr #hud,body.xr #cross,body.xr #prompt,body.xr #toast,body.xr #touch,body.xr #end,body.xr #vrbar{display:none!important}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><b>NEXUS // RFID</b><div id="pips"><span></span><span></span><span></span></div><div id="obj"></div></div>
+<div id="cross"></div>
+<div id="prompt"></div>
+<div id="toast"></div>
+<div id="flash"></div>
+<div id="intro">
+<h1>NEXUS<i>//</i>RFID</h1>
+<div>Infiltre o complexo, clone os cartões 13,56 MHz,<br>abra as portas e coloque o núcleo ESP32 online.</div>
+<div style="font-size:12px;opacity:.7;margin-top:12px">WASD mover · Mouse olhar · Shift correr · C agachar · E interagir<br>Celular: arraste a metade esquerda para andar e a direita para olhar</div>
+<button id="go">[ JOGAR NA TELA ]</button><div style="font-size:12px;margin:12px">VR: analógico esquerdo anda · direito gira<br>Gatilho: interagir · segure grip: agachar · B: painel de controles</div>
+</div>
+<div id="end"><div id="log"></div></div>
+<div id="vrbar"><button id="vr" disabled>VERIFICANDO VR...</button><div id="vrstatus">Abra pelo navegador do Quest em um endereço HTTPS.</div></div>
+<div id="touch">
+<button data-k="e" style="right:16px">E</button>
+<button data-k="c" style="right:90px">C</button>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script>
+const T=THREE;
+const $=id=>document.getElementById(id);
+const renderer=new T.WebGLRenderer({canvas:$('c'),antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));
+const scene=new T.Scene();
+scene.background=new T.Color(0x03060d);
+scene.fog=new T.FogExp2(0x03060d,0.05);
+const camera=new T.PerspectiveCamera(75,1,0.05,120);
+camera.rotation.order='YXZ';
+const rig=new T.Group();scene.add(rig);rig.add(camera);
+renderer.xr.enabled=true;
+renderer.xr.setReferenceSpaceType('local-floor');
+renderer.xr.setFramebufferScaleFactor(1);
+let xrActive=false,xrCrouch=false,xrYaw=Math.PI,xrTurnReady=true,xrDiagnostic=false;
+let xrMessage='',xrMessageUntil=0,xrVisibility='visible';
+const headPosition=new T.Vector3(),headDirection=new T.Vector3();
+const xrMove={x:0,z:0};
+const buttonState=new Map();
+
+scene.add(new T.AmbientLight(0x2a3a55,1.1));
+const torch=new T.PointLight(0x7fd8ff,0.9,9);
+torch.position.set(0,0,0.3);
+camera.add(torch);
+let composer=null;
+if(T.EffectComposer&&T.UnrealBloomPass&&T.RenderPass){
+  composer=new T.EffectComposer(renderer);
+  composer.addPass(new T.RenderPass(scene,camera));
+  composer.addPass(new T.UnrealBloomPass(new T.Vector2(innerWidth,innerHeight),1.1,0.7,0.12));
+}
+function resize(){
+  renderer.setSize(innerWidth,innerHeight,false);
+  if(composer)composer.setSize(innerWidth,innerHeight);
+  camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
+}
+addEventListener('resize',resize);resize();
+
+function canvasTex(w,h,draw,rx,ry){
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  draw(c.getContext('2d'));
+  const t=new T.CanvasTexture(c);
+  t.wrapS=t.wrapT=T.RepeatWrapping;t.repeat.set(rx||1,ry||1);
+  t.anisotropy=4;
+  return t;
+}
+const floorTex=canvasTex(128,128,g=>{
+  g.fillStyle='#09111e';g.fillRect(0,0,128,128);
+  g.strokeStyle='#1f86b4';g.lineWidth=3;g.strokeRect(1,1,126,126);
+  g.strokeStyle='#123a58';g.lineWidth=1;
+  g.beginPath();g.moveTo(64,0);g.lineTo(64,128);g.moveTo(0,64);g.lineTo(128,64);g.stroke();
+},4,50);
+const wallTex=canvasTex(128,128,g=>{
+  g.fillStyle='#0c1522';g.fillRect(0,0,128,128);
+  g.fillStyle='#142536';g.fillRect(6,6,116,116);
+  g.fillStyle='#0e1a28';
+  for(let i=0;i<4;i++)g.fillRect(14,14+i*28,100,3);
+  g.fillStyle='#173047';g.fillRect(0,60,128,8);
+},25,1);
+const rackTex=canvasTex(128,256,g=>{
+  g.fillStyle='#070b12';g.fillRect(0,0,128,256);
+  for(let y=8;y<248;y+=14)for(let x=10;x<118;x+=12){
+    const r=Math.random();
+    g.fillStyle=r<0.5?'#00ff9c':r<0.75?'#00c8ff':r<0.9?'#ff2d95':'#000';
+    g.fillRect(x,y,7,5);
+  }
+});
+const floorMat=new T.MeshStandardMaterial({map:floorTex,roughness:0.35,metalness:0.4});
+const wallMat=new T.MeshStandardMaterial({map:wallTex,roughness:0.6,metalness:0.5});
+const ceilMat=new T.MeshStandardMaterial({color:0x0a121c,roughness:0.8});
+const metalMat=new T.MeshStandardMaterial({color:0x1b2735,roughness:0.4,metalness:0.8});
+const rackMat=new T.MeshStandardMaterial({color:0x10161f,emissive:0xffffff,emissiveMap:rackTex,emissiveIntensity:1.4,roughness:0.5,metalness:0.6});
+
+const boxes=[];
+function mk(w,h,d,x,y,z,mat,solid){
+  const m=new T.Mesh(new T.BoxGeometry(w,h,d),mat);
+  m.position.set(x,y,z);scene.add(m);
+  if(solid)boxes.push({x,z,hw:w/2,hd:d/2,on:true});
+  return m;
+}
+function glow(w,h,d,x,y,z,color){
+  const m=new T.Mesh(new T.BoxGeometry(w,h,d),new T.MeshBasicMaterial({color}));
+  m.position.set(x,y,z);scene.add(m);
+  return m;
+}
+mk(8,0.2,100,0,-0.1,50,floorMat);
+mk(8,0.2,100,0,4.1,50,ceilMat);
+mk(0.4,4,100,-4.2,2,50,wallMat,true);
+mk(0.4,4,100,4.2,2,50,wallMat,true);
+mk(8.8,4,0.4,0,2,-0.2,wallMat,true);
+mk(8.8,4,0.4,0,2,100.2,wallMat,true);
+const roomColors=[0x00e5ff,0x00e5ff,0xff2d95,0xff2d95,0x69ff8a];
+for(let r=0;r<5;r++){
+  const zc=r*20+10;
+  glow(0.12,0.05,16,-2,4,zc,roomColors[r]);
+  glow(0.12,0.05,16,2,4,zc,roomColors[r]);
+  glow(0.08,3.4,0.08,-3.95,2,zc-9.6,roomColors[r]);
+  glow(0.08,3.4,0.08,3.95,2,zc-9.6,roomColors[r]);
+  const l=new T.PointLight(roomColors[r],1.2,22);
+  l.position.set(0,3.5,zc);scene.add(l);
+  for(let k=0;k<3;k++){
+    const z=r*20+5.5+k*4.5;
+    if(r>0){
+      mk(0.9,2.8,1.2,-3.2,1.4,z,rackMat,true);
+      mk(0.9,2.8,1.2,3.2,1.4,z+1,rackMat,true);
+    }
+  }
+}
+for(const z of [27,32,47,52,67,73]){
+  mk(1.4,3.6,1.4,z%2?-1.3:1.3,1.8,z,metalMat,true);
+  glow(0.05,3.2,0.05,z%2?-0.58:0.58,1.8,z,0x00e5ff);
+}
+
+const doors=[];
+const doorLevel=[1,2,2,3];
+function makeScreen(){
+  const c=document.createElement('canvas');c.width=256;c.height=128;
+  const t=new T.CanvasTexture(c);
+  const m=new T.Mesh(new T.PlaneGeometry(0.6,0.3),new T.MeshBasicMaterial({map:t}));
+  return {c,t,m};
+}
+function drawScreen(s,text,sub,color){
+  const g=s.c.getContext('2d');
+  g.fillStyle='#021018';g.fillRect(0,0,256,128);
+  g.strokeStyle=color;g.lineWidth=4;g.strokeRect(3,3,250,122);
+  g.fillStyle=color;g.textAlign='center';
+  g.font='bold 54px Courier New';g.fillText(text,128,64);
+  g.font='bold 22px Courier New';g.fillText(sub,128,104);
+  s.t.needsUpdate=true;
+}
+doorLevel.forEach((lvl,i)=>{
+  const z=(i+1)*20;
+  mk(2.5,4,0.4,-2.75,2,z,wallMat,true);
+  mk(2.5,4,0.4,2.75,2,z,wallMat,true);
+  const slab=mk(3,4,0.3,0,2,z,metalMat,false);
+  const strip=glow(0.1,3.6,0.34,0,2,z,0xff2d95);
+  slab.add(strip);strip.position.set(0,0,0);
+  const col={x:0,z,hw:1.5,hd:0.3,on:true};
+  boxes.push(col);
+  const base=mk(0.8,0.5,0.1,2.6,1.4,z-0.25,metalMat,false);
+  const scr=makeScreen();
+  scr.m.position.set(2.6,1.4,z-0.31);scr.m.rotation.y=Math.PI;scene.add(scr.m);
+  drawScreen(scr,'NV'+lvl,'TOQUE O CARTAO','#ff2d95');
+  doors.push({slab,col,open:false,lvl,z,scr,x:2.6});
+});
+
+const badges=[];
+[[1,2,12],[2,-2.5,34],[3,2.5,74]].forEach(b=>{
+  const color=[0,0x00e5ff,0xffd400,0xff2d95][b[0]];
+  const g=new T.Group();
+  const card=new T.Mesh(new T.BoxGeometry(0.4,0.26,0.03),new T.MeshBasicMaterial({color}));
+  g.add(card);
+  g.position.set(b[1],1.2,b[2]);scene.add(g);
+  const l=new T.PointLight(color,0.8,6);g.add(l);
+  badges.push({g,lvl:b[0],got:false});
+});
+
+const core=new T.Group();
+const tower=new T.Mesh(new T.CylinderGeometry(0.5,0.7,2.6,16),metalMat);
+tower.position.y=1.3;
+const orb=new T.Mesh(new T.IcosahedronGeometry(0.55,1),new T.MeshBasicMaterial({color:0x69ff8a,wireframe:true}));
+orb.position.y=3;
+core.add(tower,orb);
+core.position.set(0,0,92);scene.add(core);
+const coreLight=new T.PointLight(0x69ff8a,1.5,14);
+coreLight.position.set(0,3,90);scene.add(coreLight);
+
+const drones=[];
+function makeDrone(axis,center,range,speed,phase,base){
+  const g=new T.Group();
+  const body=new T.Mesh(new T.SphereGeometry(0.3,16,12),metalMat);
+  const eye=new T.Mesh(new T.SphereGeometry(0.12,10,8),new T.MeshBasicMaterial({color:0xff2d3d}));
+  eye.position.set(0,-0.15,0.22);
+  const cone=new T.Mesh(new T.ConeGeometry(1.6,2.2,24,1,true),new T.MeshBasicMaterial({color:0xff2d3d,transparent:true,opacity:0.12,blending:T.AdditiveBlending,depthWrite:false,side:T.DoubleSide}));
+  cone.position.y=-1.2;
+  g.add(body,eye,cone);
+  scene.add(g);
+  drones.push({g,axis,center,range,speed,phase,base});
+}
+makeDrone('x',0,3,0.9,0,28);
+makeDrone('z',50,6,0.8,0,0);
+makeDrone('x',0,3,1,0,66);
+makeDrone('x',0,3,1,3,72);
+makeDrone('z',60,0,0,0,0);
+drones.pop().g.visible=false;
+
+const dustGeo=new T.BufferGeometry();
+const dp=new Float32Array(900);
+for(let i=0;i<300;i++){dp[i*3]=(Math.random()-0.5)*8;dp[i*3+1]=Math.random()*4;dp[i*3+2]=Math.random()*100;}
+dustGeo.setAttribute('position',new T.BufferAttribute(dp,3));
+const dust=new T.Points(dustGeo,new T.PointsMaterial({color:0x66ccff,size:0.04,transparent:true,opacity:0.7}));
+scene.add(dust);
+
+const rings=[];
+function pulse(x,y,z,color){
+  const m=new T.Mesh(new T.RingGeometry(0.1,0.14,48),new T.MeshBasicMaterial({color,transparent:true,opacity:1,side:T.DoubleSide,depthWrite:false}));
+  m.position.set(x,y,z);camera.getWorldPosition(headPosition);m.lookAt(headPosition);scene.add(m);
+  rings.push({m,t:0});
+}
+let ac=null;
+function beep(f,d,type){
+  try{
+    ac=ac||new (window.AudioContext||window.webkitAudioContext)();
+    const o=ac.createOscillator(),g=ac.createGain();
+    o.type=type||'sine';o.frequency.value=f;g.gain.value=0.07;
+    o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+d);
+  }catch(e){}
+}
+let toastTimer=0;
+function tg(text){
+  xrMessage=text.replace(/<[^>]*>/g,'');xrMessageUntil=performance.now()+4000;
+  const t=$('toast');
+  t.innerHTML='<small>🤖 AccessBot</small>'+text;
+  t.className='show';
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{t.className='';},4000);
+}
+function alarm(){
+  const f=$('flash');
+  f.style.transition='none';f.style.opacity='0.7';
+  setTimeout(()=>{f.style.transition='opacity .6s';f.style.opacity='0';},60);
+  beep(140,0.5,'sawtooth');
+}
+
+let level=0,acertos=0,negados=0,done=false,started=false;
+let t0=0;
+const player={x:0,z:3,yaw:Math.PI,pitch:0,h:1.7,bob:0};
+const keys={};
+function hora(){return new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});}
+function hud(){
+  document.querySelectorAll('#pips span').forEach((s,i)=>{s.className=i<level?'on':'';});
+  const next=doors.find(d=>!d.open);
+  let txt='';
+  if(!next)txt='Ative o núcleo ESP32 no fundo do complexo';
+  else if(level<next.lvl)txt='Encontre o cartão de nível '+next.lvl;
+  else txt='Aproxime o cartão do leitor rosa (E)';
+  $('obj').textContent='> '+txt;
+}
+function push(o,r){
+  for(const b of boxes){
+    if(!b.on)continue;
+    const nx=Math.max(b.x-b.hw,Math.min(o.x,b.x+b.hw));
+    const nz=Math.max(b.z-b.hd,Math.min(o.z,b.z+b.hd));
+    const dx=o.x-nx,dz=o.z-nz,d=Math.hypot(dx,dz);
+    if(d<0.0001)continue;
+    if(d<r){o.x=nx+dx/d*r;o.z=nz+dz/d*r;}
+  }
+}
+function interact(){
+  if(!started||done)return;
+  for(const d of doors){
+    if(Math.hypot(d.x-player.x,d.z-0.3-player.z)<2.8&&!d.open){
+      if(level>=d.lvl){
+        d.open=true;acertos++;
+        drawScreen(d.scr,'OK','ACESSO LIBERADO','#69ff8a');
+        pulse(d.x,1.4,d.z-0.4,0x69ff8a);beep(880,0.15);setTimeout(()=>beep(1320,0.2),150);
+        tg('🔓 Porta nível '+d.lvl+' liberada às '+hora());
+      }else{
+        negados++;
+        drawScreen(d.scr,'X','NIVEL INSUFICIENTE','#ff2d3d');
+        pulse(d.x,1.4,d.z-0.4,0xff2d3d);beep(160,0.4,'square');
+        tg('⚠️ Acesso negado: cartão nível '+level+' no leitor nível '+d.lvl);
+        setTimeout(()=>drawScreen(d.scr,'NV'+d.lvl,'TOQUE O CARTAO','#ff2d95'),1600);
+      }
+      hud();return;
+    }
+  }
+  if(Math.hypot(player.x,player.z-92)<3.4&&doors.every(d=>d.open))finish();
+}
+function finish(){
+  done=true;
+  document.exitPointerLock&&document.exitPointerLock();
+  const s=Math.round((performance.now()-t0)/1000);
+  const lines=['> ESP32 energizado','> Wi-Fi conectado','> Servidor web: ONLINE','> Telegram bot: mensagem enviada','> Leituras validadas: '+acertos+' · negadas: '+negados,'> Tempo: '+s+' s','','SISTEMA ONLINE ✔'];
+  $('end').style.display='flex';
+  let i=0;
+  const iv=setInterval(()=>{
+    $('log').innerHTML+=lines[i]+'<br>';beep(600+i*90,0.08);
+    i++;if(i>=lines.length)clearInterval(iv);
+  },650);
+}
+function hint(){
+  const p=$('prompt');
+  let txt='';
+  for(const d of doors)if(!d.open&&Math.hypot(d.x-player.x,d.z-0.3-player.z)<2.8)txt='[E] aproximar cartão';
+  if(doors.every(d=>d.open)&&Math.hypot(player.x,player.z-92)<3.4)txt='[E] ligar o núcleo ESP32';
+  p.textContent=txt;p.style.display=txt&&!done?'block':'none';
+}
+
+let locked=false,dragging=false;
+function look(dx,dy,k){
+  player.yaw-=dx*k;
+  player.pitch=Math.max(-1.3,Math.min(1.3,player.pitch-dy*k));
+}
+function start(){
+  $('intro').style.display='none';if(!started)t0=performance.now();started=true;
+  if(!xrActive)try{$('c').requestPointerLock();}catch(e){}
+  beep(440,0.1);
+  tg('Cartões nível 1, 2 e 3 estão espalhados. Cuidado com os drones!');
+}
+$('go').addEventListener('click',start);
+document.addEventListener('pointerlockchange',()=>{locked=document.pointerLockElement===$('c');});
+addEventListener('mousemove',e=>{if(locked||dragging)look(e.movementX,e.movementY,0.0024);});
+addEventListener('mousedown',()=>{dragging=started;});
+addEventListener('mouseup',()=>{dragging=false;});
+addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(!keys[k]&&k==='e')interact();
+  keys[k]=true;
+});
+addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
+const touchMove={id:null,x:0,y:0,dx:0,dy:0},touchLook={id:null,x:0,y:0};
+if('ontouchstart' in window){
+  $('touch').style.display='block';
+  document.querySelectorAll('#touch button').forEach(b=>{
+    b.addEventListener('touchstart',e=>{
+      e.preventDefault();e.stopPropagation();
+      if(b.dataset.k==='e')interact();else keys.c=!keys.c;
+    },{passive:false});
+  });
+  addEventListener('touchstart',e=>{
+    for(const t of e.changedTouches){
+      if(t.clientX<innerWidth/2&&touchMove.id===null){touchMove.id=t.identifier;touchMove.x=t.clientX;touchMove.y=t.clientY;touchMove.dx=touchMove.dy=0;}
+      else if(touchLook.id===null){touchLook.id=t.identifier;touchLook.x=t.clientX;touchLook.y=t.clientY;}
+    }
+  },{passive:false});
+  addEventListener('touchmove',e=>{
+    e.preventDefault();
+    for(const t of e.changedTouches){
+      if(t.identifier===touchMove.id){touchMove.dx=(t.clientX-touchMove.x)/50;touchMove.dy=(t.clientY-touchMove.y)/50;}
+      if(t.identifier===touchLook.id){look(t.clientX-touchLook.x,t.clientY-touchLook.y,0.005);touchLook.x=t.clientX;touchLook.y=t.clientY;}
+    }
+  },{passive:false});
+  addEventListener('touchend',e=>{
+    for(const t of e.changedTouches){
+      if(t.identifier===touchMove.id){touchMove.id=null;touchMove.dx=touchMove.dy=0;}
+      if(t.identifier===touchLook.id)touchLook.id=null;
+    }
+  });
+}
+
+let tt=0,last=performance.now(),cooldown=0;
+function update(dt){
+  let fx=(keys.w?1:0)-(keys.s?1:0)-Math.max(-1,Math.min(1,touchMove.dy));
+  let sx=(keys.d?1:0)-(keys.a?1:0)+Math.max(-1,Math.min(1,touchMove.dx));
+  if(xrActive){fx=-xrMove.z;sx=xrMove.x;}
+  const crouch=xrActive?xrCrouch:!!keys.c;
+  const speed=xrActive?(crouch?1.3:2.4):(crouch?1.8:keys.shift?6.2:3.6);
+  const len=Math.hypot(fx,sx)||1;
+  fx/=Math.max(1,len);sx/=Math.max(1,len);
+  let moveYaw=player.yaw;
+  if(xrActive){camera.getWorldDirection(headDirection);moveYaw=Math.atan2(-headDirection.x,-headDirection.z);}
+  const sin=Math.sin(moveYaw),cos=Math.cos(moveYaw);
+  player.x+=(-sin*fx+cos*sx)*speed*dt;
+  player.z+=(-cos*fx-sin*sx)*speed*dt;
+  push(player,0.4);
+  player.x=Math.max(-3.7,Math.min(3.7,player.x));
+  const moving=Math.abs(fx)+Math.abs(sx)>0.1;
+  player.bob+=moving?dt*speed*2.4:0;
+  const eye=(crouch?1.05:1.7)+(moving?Math.sin(player.bob)*0.035:0);
+  player.h+=(eye-player.h)*Math.min(1,dt*10);
+  if(xrActive)syncRig();
+  else{camera.position.set(player.x,player.h,player.z);camera.rotation.set(player.pitch,player.yaw,0);}
+  for(const d of doors){
+    d.col.on=!d.open;
+    d.slab.position.y+=((d.open?5.2:2)-d.slab.position.y)*Math.min(1,dt*3);
+  }
+  for(const b of badges){
+    if(b.got)continue;
+    b.g.rotation.y+=dt*2;
+    b.g.position.y=1.2+Math.sin(tt*2+b.lvl)*0.08;
+    if(Math.hypot(b.g.position.x-player.x,b.g.position.z-player.z)<1.3){
+      b.got=true;b.g.visible=false;
+      level=Math.max(level,b.lvl);
+      beep(1000,0.12);setTimeout(()=>beep(1500,0.18),120);
+      tg('💳 Cartão nível '+b.lvl+' clonado: UID 04:'+(Math.random()*255|0).toString(16).toUpperCase().padStart(2,'0')+':'+(Math.random()*255|0).toString(16).toUpperCase().padStart(2,'0')+':7B');
+      hud();
+    }
+  }
+  cooldown-=dt;
+  for(const d of drones){
+    const s=Math.sin(tt*d.speed+d.phase)*d.range;
+    if(d.axis==='x')d.g.position.set(d.center+s,2.5+Math.sin(tt*2)*0.08,d.base);
+    else d.g.position.set(0+s*0.4,2.5+Math.sin(tt*2)*0.08,d.center+s);
+    d.g.rotation.y=tt;
+    const dist=Math.hypot(d.g.position.x-player.x,d.g.position.z-player.z);
+    if(dist<(crouch?1.5:3)&&cooldown<=0){
+      cooldown=2.5;alarm();
+      const room=Math.max(0,Math.min(4,Math.floor(player.z/20)));
+      player.x=0;player.z=room*20+2.5;
+      tg('🚨 Intruso detectado por um drone! Voltando ao início da sala.');
+    }
+  }
+  orb.rotation.y+=dt;orb.rotation.x+=dt*0.6;
+  orb.position.y=3+Math.sin(tt*2)*0.12;
+  dust.position.y=Math.sin(tt*0.4)*0.15;
+  for(let i=rings.length-1;i>=0;i--){
+    const r=rings[i];r.t+=dt;
+    r.m.scale.setScalar(1+r.t*6);
+    r.m.material.opacity=Math.max(0,1-r.t/0.9);
+    if(r.t>0.9){scene.remove(r.m);r.m.geometry.dispose();r.m.material.dispose();rings.splice(i,1);}
+  }
+  if(xrActive)syncRig();
+  hint();
+}
+function loop(now){
+  const dt=Math.min(0.05,(now-last)/1000);
+  last=now;tt+=dt;
+  if(xrActive)readXR();
+  if(started&&!done&&(!xrActive||xrVisibility==='visible'))update(dt);
+  else if(!xrActive&&!started){
+    camera.position.set(Math.sin(tt*0.2)*2,1.8,3+tt*0.5%10);
+    camera.rotation.set(0,Math.PI+Math.sin(tt*0.3)*0.3,0);
+  }
+  if(xrActive){drawVRPanel(now);renderer.render(scene,camera);}
+  else if(composer)composer.render();else renderer.render(scene,camera);
+
+}
+// VR uses a player rig: head tracking stays under WebXR control.
+function syncRig(){
+  rig.rotation.y=xrYaw;
+  rig.updateMatrixWorld(true);
+  // Keep collisions and interactions centered on the tracked head.
+  const offset=camera.position.clone().applyAxisAngle(new T.Vector3(0,1,0),xrYaw);
+  rig.position.set(player.x-offset.x,xrCrouch?-0.5:0,player.z-offset.z);
+  rig.updateMatrixWorld(true);
+}
+function deadzone(v){return Math.abs(v)<0.18?0:Math.sign(v)*(Math.abs(v)-0.18)/0.82;}
+function readXR(){
+  xrMove.x=xrMove.z=0;xrCrouch=false;
+  const session=renderer.xr.getSession();
+  if(!session||xrVisibility!=='visible')return;
+  // Previous rendered head includes physical movement within the play area.
+  camera.getWorldPosition(headPosition);player.x=headPosition.x;player.z=headPosition.z;
+  let turn=0;
+  for(const source of session.inputSources){
+    const gp=source.gamepad;if(!gp)continue;
+    const ax=gp.axes.length>=4?2:0,ay=gp.axes.length>=4?3:1;
+    if(source.handedness==='left'){xrMove.x=deadzone(gp.axes[ax]||0);xrMove.z=deadzone(gp.axes[ay]||0);}
+    if(source.handedness==='right'){
+      turn=gp.axes[ax]||0;
+      const b=!!gp.buttons[5]?.pressed;
+      if(b&&!buttonState.get(source))xrDiagnostic=!xrDiagnostic;
+      buttonState.set(source,b);
+    }
+    if(gp.buttons[1]?.pressed)xrCrouch=true;
+  }
+  if(Math.abs(turn)<0.25)xrTurnReady=true;
+  if(Math.abs(turn)>0.65&&xrTurnReady){xrYaw-=Math.sign(turn)*Math.PI/6;xrTurnReady=false;}
+}
+// A readable 3D panel replaces HTML overlays, which are absent in immersive VR.
+const panelCanvas=document.createElement('canvas');panelCanvas.width=1024;panelCanvas.height=512;
+const panelTexture=new T.CanvasTexture(panelCanvas);
+const panel=new T.Mesh(new T.PlaneGeometry(1.35,0.675),new T.MeshBasicMaterial({map:panelTexture,transparent:true,depthTest:false,depthWrite:false}));
+panel.position.set(0,-0.48,-1.7);panel.renderOrder=100;panel.visible=false;camera.add(panel);
+let panelLast=0;
+function drawVRPanel(now){
+  if(now-panelLast<100)return;panelLast=now;
+  const g=panelCanvas.getContext('2d');g.clearRect(0,0,1024,512);
+  g.fillStyle='rgba(2,12,25,.88)';g.fillRect(0,0,1024,512);
+  g.strokeStyle='#00e5ff';g.lineWidth=4;g.strokeRect(4,4,1016,504);
+  g.fillStyle='#00e5ff';g.font='bold 36px monospace';g.fillText(done?'NEXUS // SISTEMA ONLINE':'NEXUS // RFID     NIVEL '+level,28,52);
+  let lines=[];
+  if(done)lines=['Núcleo ESP32 ativado!','Portas: '+acertos+' | Acessos negados: '+negados,'Tempo: '+Math.round((finishTime-t0)/1000)+' s','Use o menu do Quest para sair do VR.'];
+  else if(xrDiagnostic){
+    lines=['TESTE DE CONTROLES (B fecha)'];
+    for(const src of renderer.xr.getSession()?.inputSources||[]){
+      const gp=src.gamepad;if(!gp)continue;
+      lines.push(src.handedness+': '+gp.axes.map(v=>v.toFixed(2)).join(' / '));
+      lines.push('Botões: '+gp.buttons.map((b,i)=>b.pressed?i:'-').join(' '));
+    }
+    if(lines.length===1)lines.push('Ligue os controles e pressione um botão.');
+  }else{
+    lines=[$('obj').textContent.replace(' (E)',''),$('prompt').textContent.replace('[E]','[GATILHO]'),'Esquerdo: andar | Direito: girar 30 graus','Grip: agachar | B: testar controles'];
+    if(now<xrMessageUntil)lines.push(xrMessage);
+  }
+  g.font='26px monospace';let y=108;
+  for(const line of lines){
+    const words=line.split(' ');let row='';
+    for(const word of words){if(g.measureText(row+word).width>955){g.fillStyle='#bff';g.fillText(row,28,y);y+=35;row='';}row+=word+' ';}
+    g.fillStyle='#bff';g.fillText(row,28,y);y+=38;
+  }
+  panelTexture.needsUpdate=true;
+}
+for(let i=0;i<2;i++){
+  const controller=renderer.xr.getController(i);rig.add(controller);
+  const ray=new T.Line(new T.BufferGeometry().setFromPoints([new T.Vector3(),new T.Vector3(0,0,-0.6)]),new T.LineBasicMaterial({color:0x00e5ff}));
+  controller.add(ray);
+  controller.addEventListener('selectstart',()=>{if(xrActive&&xrVisibility==='visible')interact();});
+}
+let finishTime=0;
+const originalFinish=finish;
+finish=function(){finishTime=performance.now();originalFinish();};
+const vrButton=$('vr');
+async function checkVR(){
+  if(!isSecureContext){vrButton.textContent='VR PRECISA DE HTTPS';return;}
+  if(!navigator.xr){vrButton.textContent='ABRA NO NAVEGADOR DO QUEST';return;}
+  try{const supported=await navigator.xr.isSessionSupported('immersive-vr');vrButton.disabled=!supported;vrButton.textContent=supported?'[ JOGAR EM VR ]':'VR INDISPONÍVEL';}
+  catch(e){$('vrstatus').textContent='Não foi possível verificar VR: '+e.message;}
+}
+vrButton.addEventListener('click',async()=>{
+  vrButton.disabled=true;
+  let session;
+  try{
+    session=await navigator.xr.requestSession('immersive-vr',{requiredFeatures:['local-floor']});
+    session.addEventListener('visibilitychange',()=>{xrVisibility=session.visibilityState;});
+    if(document.pointerLockElement)document.exitPointerLock();
+    for(const key in keys)keys[key]=false;
+    touchMove.dx=touchMove.dy=0;dragging=false;
+    xrYaw=player.yaw;camera.position.set(0,1.7,0);camera.rotation.set(0,0,0);
+    xrActive=true;xrVisibility='visible';xrTurnReady=true;syncRig();panel.visible=true;
+    document.body.classList.add('xr');
+    await renderer.xr.setSession(session);
+    start();last=performance.now();
+  }catch(e){
+    if(session)await session.end().catch(()=>{});
+    leaveXR();$('vrstatus').textContent='Não foi possível entrar em VR: '+e.message;
+  }finally{vrButton.disabled=false;}
+});
+function leaveXR(){
+  xrActive=false;panel.visible=false;document.body.classList.remove('xr');
+  rig.position.set(0,0,0);rig.rotation.set(0,0,0);player.yaw=xrYaw;player.pitch=0;
+  camera.position.set(player.x,player.h,player.z);camera.rotation.set(0,player.yaw,0);
+  buttonState.clear();last=performance.now();resize();
+}
+renderer.xr.addEventListener('sessionend',leaveXR);
+addEventListener('blur',()=>{for(const key in keys)keys[key]=false;touchMove.dx=touchMove.dy=0;dragging=false;});
+hud();checkVR();
+renderer.setAnimationLoop(loop);
+</script>
+</body>
+</html>
