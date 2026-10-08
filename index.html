@@ -39,7 +39,7 @@ h1 i{color:var(--p);text-shadow:0 0 20px var(--p)}
 #snd{left:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 12px);z-index:7;cursor:pointer;opacity:.7}
 #touch{display:none}
 #touch button{position:fixed;width:56px;height:56px;border-radius:50%;border:2px solid #0ff8;background:#0338;color:var(--c);font-size:18px;font-family:inherit;bottom:calc(env(safe-area-inset-bottom,0px) + 20px);z-index:2}
-#vrbar{position:fixed;right:12px;bottom:16px;z-index:8;display:flex;gap:8px}#vrbar button{background:#032531;color:#bff;border:1px solid #0ff;padding:12px;border-radius:8px;cursor:pointer}#vrstatus{max-width:560px;padding:8px;font-size:12px;color:#9bd}#intro{padding:18px;box-sizing:border-box}body.xr #hud,body.xr #cross,body.xr #dlg,body.xr #end,body.xr #touch,body.xr #vrbar{display:none!important}</style>
+#vrstatus{max-width:560px;padding:8px;font-size:12px;color:#9bd}#intro{padding:18px;box-sizing:border-box}body.xr #hud,body.xr #cross,body.xr #dlg,body.xr #end,body.xr #touch{display:none!important}</style>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -55,7 +55,6 @@ h1 i{color:var(--p);text-shadow:0 0 20px var(--p)}
 <button class="btn" id="go">[ JOGAR NA TELA ]</button><button class="btn" id="vrgo">[ JOGAR EM VR ]</button><div id="vrstatus">Verificando suporte VR…</div><div style="max-width:580px;font-size:12px">Quest: analógico esquerdo anda · direito gira 30°<br>Gatilho interage/avança · A/X e B/Y escolhem · clique no analógico esquerdo agacha<br>Aperte o grip para abrir o menu e testar os controles.<br>RFID e Telegram são simulações dentro deste jogo.</div>
 </div>
 <div id="end"><div id="log"></div><button class="btn" onclick="location.reload()">JOGAR DE NOVO</button></div>
-<div id="vrbar"><button id="vrresume">Entrar em VR</button></div>
 <div id="touch">
 <button data-k="e" style="right:16px">E</button>
 <button data-k="c" style="right:84px">C</button>
@@ -409,7 +408,7 @@ async function enterVR(){
  session.addEventListener('end',()=>{vr.active=false;vr.menu=false;vr.test=false;panel.visible=false;rig.position.set(0,0,0);rig.rotation.set(0,0,0);P.yaw=vr.heading;P.pitch=0;resetInputs();document.body.classList.remove('xr');last=performance.now();rs();});
  session.addEventListener('visibilitychange',()=>{resetInputs();if(session.visibilityState!=='visible'){vr.menu=true;vr.reanchor=true;}});
 }
-$('vrgo').onclick=enterVR;$('vrresume').onclick=enterVR;
+$('vrgo').onclick=enterVR;
 if(window.isSecureContext&&navigator.xr){navigator.xr.isSessionSupported('immersive-vr').then(ok=>{$('vrstatus').textContent=ok?'VR disponível. Ligue os dois controles e toque em JOGAR EM VR.':'VR não detectado. No Quest, abra este mesmo link no navegador.';}).catch(()=>{$('vrstatus').textContent='Toque em JOGAR EM VR para tentar conectar.';});}else $('vrstatus').textContent='Para VR, abra o link HTTPS no navegador do Quest. Na tela, use JOGAR NA TELA.';
 addEventListener('touchcancel',resetInputs);
 
